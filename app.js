@@ -1,6 +1,8 @@
-const WebSocket = require('ws');
+const nconf = require("nconf");
+const config = nconf.file({"file": `${__dirname}/config.json`});
+const WebSocket = require("ws");
 const channels = ["master", "red", "green", "blue", "white"];
-const spots = ["spot-1", "spot-2", "spot-3", "spot-4"];
+const spots = ["spot-1", "spot-2" , "spot-3", "spot-4"];
 const webSockets = [];
 
 const SerialPort = require('serialport');
@@ -14,22 +16,10 @@ const port = new SerialPort('/dev/ttyUSB0', {
 
 class SpotConnection {
   constructor(device, channel, deviceIndex) {
-    this.socket =  new WebSocket(`ws://192.168.8.106:3000/output/${device}/${channel}`, 'echo-protocol');
+    this.socket =  new WebSocket(`ws://${config.get("server:host")}:${config.get("server:port")}/output/${device}/${channel}`, 'echo-protocol');
     this.socket.on('message', this.onMessage.bind(this));
     this.deviceIndex = deviceIndex;
     this.channelValue = 0;
-  }
-
-  blobToArrayBuffer(blob) {
-    return new Promise((resolve) => {
-      const fileReader = new FileReader();
-
-      fileReader.onload = (event) => {
-        resolve(event.target.result);
-      };
-
-      fileReader.readAsArrayBuffer(blob);
-    });
   }
 
   async onMessage(message) {
@@ -39,11 +29,11 @@ class SpotConnection {
     if (value != this.channelValue) {
       this.channelValue = value;
       const command = `${this.deviceIndex},${value};`;
-      port.write(command, function(err) {
+      port.write(command, (err) => {
         if (err) {
           return console.log('Error on write: ', err.message);
         }
-        console.log(command);
+        console.log(`sent ${value} message to channel ${this.deviceIndex}`);
       });
     } else {
       console.log("Value already set");
@@ -55,4 +45,4 @@ channels.forEach((channel, channelIndex) => {
   spots.forEach((spot, spotIndex) => {
     webSockets.push(new SpotConnection(spot, channel, ((spotIndex * 10) + channelIndex) + 1));
   });
-})
+});
