@@ -18,6 +18,24 @@ class AbstractSpotConnection {
   constructor(device, channel) {
     this.socket =  new WebSocket(`ws://${config.get("server:host")}:${config.get("server:port")}/output/${device}/${channel}`, 'echo-protocol');
     this.socket.on('message', this.onMessage.bind(this));
+    this.socket.on('close', this.onSocketClose.bind(this));
+    
+  }
+
+  writeAsync(command) {
+    return new Promise((resolve, reject) => {
+      port.write(command, (err) => {
+        if (err) {
+          reject(err);
+        } else {
+          resolve();
+        }
+      });
+    });
+  }
+
+  onSocketClose() {
+    process.exit(1);
   }
 
   async onMessage(message) {
@@ -39,12 +57,7 @@ class SpotConnection extends AbstractSpotConnection {
     if (value != this.channelValue) {
       this.channelValue = value;
       const command = `${this.deviceIndex},${value};`;
-      port.write(command, (err) => {
-        if (err) {
-          return console.log('Error on write: ', err.message);
-        }
-        console.log(`sent ${value} message to channel ${this.deviceIndex}`);
-      });
+      await this.writeAsync(command);
     }
   }
 }
@@ -67,11 +80,23 @@ class MasterWaveConnection extends AbstractSpotConnection {
     const data = message;
     const array = new Uint8Array(data);
     const value = array[0];
-    this.enabled = value > 50;
+    const isEnabled = value > 50;
     this.iteratorAddition = (value - 50) / 500;
+    if (this.enabled && !isEnabled) {
+      await this.shutdown();
+    }
+    this.enabled = isEnabled;
   }
 
-  onProgress() {
+  async shutdown() {
+    for(let i = 0; i < this.masterChannels.length; i++) {
+      const channel = this.masterChannels[i];
+      const command = `${channel},0;`;
+      await this.writeAsync(command);
+    }
+  }
+
+  async onProgress() {
     if (!this.enabled) {
       return;
     }
@@ -81,11 +106,7 @@ class MasterWaveConnection extends AbstractSpotConnection {
       const channel = this.masterChannels[i];
       const command = `${channel},${value};`;
       if(this.channelValueMap[i] != value) {
-        port.write(command, (err) => {
-          if (err) {
-            return console.log('Error on write: ', err.message);
-          }
-        });
+        await this.writeAsync(command);
       } 
       this.channelValueMap[i] = value;
     }
